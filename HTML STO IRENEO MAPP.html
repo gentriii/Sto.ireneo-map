@@ -1,0 +1,218 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sto. Ireneo Urban Risk Simulation</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+    <style>
+        body { margin: 0; }
+        #map { height: 100vh; }
+        .control-box {
+            position: absolute;
+            top: 10px;
+            left: 50px;
+            background: white;
+            padding: 10px;
+            z-index: 1000;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="control-box">
+    <b>Disaster Scenario:</b><br>
+    <select id="scenario" onchange="changeScenario()">
+        <option value="fire">Fire</option>
+        <option value="flood">Flood</option>
+        <option value="earthquake">Earthquake</option>
+    </select>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+
+// Centered directly on Sto. Ireneo Street
+var map = L.map('map').setView([14.6897, 121.0806], 18);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+var selectedScenario = "fire";
+var currentRoute = null;
+
+// Safe Zones near Sto. Ireneo
+var safeZones = [
+    { name: "Giarmi Covered Court", lat: 14.6899, lng: 121.0822 },
+
+];
+
+safeZones.forEach(zone => {
+    L.marker([zone.lat, zone.lng]).addTo(map)
+        .bindPopup("<b>Safe Zone:</b> " + zone.name);
+});
+
+// Sample realistic street-aligned blocks
+var blocks = [
+    {
+        name: "North Block (Near Santa Catalina)",
+        coords: [
+            [14.6901, 121.0807],
+            [14.6899, 121.0807],
+            [14.6899, 121.0808],
+            [14.6900, 121.0809]
+        ],
+        gentrification: 3.84,
+        openSpace: 1.45
+    },
+    {
+        name: "Mid Block (Central Sto. Ireneo)",
+        coords: [
+            [14.6900, 121.0810],
+            [14.6898, 121.0809],
+            [14.6897, 121.0810],
+            [14.6899, 121.0811]
+        ],
+        gentrification: 4.17,
+        openSpace: 0.98
+    },
+    {
+        name: "South Block (Near Doña Juana)",
+        coords: [
+            [14.6899, 121.0811],
+            [14.6898, 121.0810],
+            [14.6896, 121.0813],
+            [14.6897, 121.0813]
+        ],
+        gentrification: 3.67,
+        openSpace: 1.20
+ },
+    {
+        name: "4 (Near Doña Juana)",
+        coords: [
+            [14.6899, 121.0807],
+            [14.6898, 121.0807],
+            [14.6897, 121.0808],
+            [14.6898, 121.0808]
+        ],
+        gentrification: 3.17,
+        openSpace: 1.55
+ },
+    {
+        name: "5 (Near Doña Juana)",
+        coords: [
+            [14.6898, 121.0808],
+            [14.6897, 121.0808],
+            [14.6896, 121.0809],
+            [14.6897, 121.0810]
+        ],
+        gentrification: 3.66,
+        openSpace: 1.30
+ },
+    {
+        name: "6 (Near Doña Juana)",
+        coords: [
+            [14.6897, 121.0810],
+            [14.6896, 121.0809],
+            [14.6895, 121.0810],
+            [14.6896, 121.0811]
+        ],
+        gentrification: 4.0,
+        openSpace: 0.95
+ },
+    {
+        name: "7 (Near Doña Juana)",
+        coords: [
+            [14.6896, 121.0811],
+            [14.6895, 121.0811],
+            [14.6894, 121.0812],
+            [14.6895, 121.0813]
+        ],
+        gentrification: 3.33,
+        openSpace: 1.40
+    }
+];
+
+function getRisk(g, o) {
+    if (g > 3.0 && o < 9.0) return "High Risk";
+    if (g > 2.0) return "Moderate Risk";
+    return "Low Risk";
+}
+
+function calculateWeightedDistance(lat, lng, zone, g, o) {
+
+    var baseDistance = map.distance([lat, lng], [zone.lat, zone.lng]);
+
+    if (selectedScenario === "fire") {
+        return baseDistance * (1 + g); 
+    }
+
+    if (selectedScenario === "flood") {
+        return baseDistance * (1 + (1 - o)); 
+    }
+
+    if (selectedScenario === "earthquake") {
+        return baseDistance * (1 + g * 1.5); 
+    }
+}
+
+blocks.forEach(block => {
+
+    var risk = getRisk(block.gentrification, block.openSpace);
+
+    var polygon = L.polygon(block.coords, {
+        color: risk === "High Risk" ? "red" :
+               risk === "Moderate Risk" ? "orange" : "green",
+        fillOpacity: 0.5
+    }).addTo(map);
+
+    polygon.bindPopup(`
+        <b>${block.name}</b><br>
+        Gentrification: ${block.gentrification}<br>
+        Open Space: ${block.openSpace}<br>
+        Risk: ${risk}<br><br>
+        <button onclick="simulateRoute(${block.coords[0][0]}, ${block.coords[0][1]}, ${block.gentrification}, ${block.openSpace})">
+        Evacuate
+        </button>
+    `);
+});
+
+function simulateRoute(lat, lng, g, o) {
+
+    if (currentRoute) {
+        map.removeLayer(currentRoute);
+    }
+
+    var nearestZone = safeZones[0];
+    var minDistance = calculateWeightedDistance(lat, lng, safeZones[0], g, o);
+
+    safeZones.forEach(zone => {
+        var distance = calculateWeightedDistance(lat, lng, zone, g, o);
+        if (distance < minDistance) {
+            minDistance = distance;
+            nearestZone = zone;
+        }
+    });
+
+    currentRoute = L.polyline([
+        [lat, lng],
+        [nearestZone.lat, nearestZone.lng]
+    ], { color: 'blue', weight: 4 }).addTo(map);
+}
+
+function changeScenario() {
+    selectedScenario = document.getElementById("scenario").value;
+}
+
+</script>
+
+</body>
+</html>
+	
